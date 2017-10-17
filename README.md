@@ -56,4 +56,16 @@ OPTIONS:
    
       socket    RTorrent SCGI socket. (default /tmp/rtorrent.sock)
 
+EXAMPLE USAGE:
+
+   Following selects all torrents which are older than 100 days and larger than
+   1024 megabytes:
+
+      gotor -older 100 -size 1024 -verbose
+
+   Once the listing of selected files is reviewed, they can be stopped and
+   deleted:
+
+      gotor -older 100 -size 1024 -stop -delete
+
 ```
