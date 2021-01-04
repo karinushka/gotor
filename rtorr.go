@@ -41,19 +41,20 @@ func (p *RTorrent) Call(method string, args []interface{}) ([][]interface{}, err
 	if err != nil {
 		return nil, fmt.Errorf("Encoding: %q\n", err)
 	}
+	// Need to replace these string because Go considers lowercase to be
+	// private fields in structures and will not marshall them into XML.
 	if strings.Index(method, "multicall") > -1 {
 		req = bytes.Replace(req, []byte("MethodName"), []byte("methodName"), -1)
 		req = bytes.Replace(req, []byte("Params"), []byte("params"), -1)
 	}
 
-	//     fmt.Printf("multicall: %s\n", req)
-
+	// log.Printf("multicall: %s\n", req)
 	rep, err := scgi.Send(p.Sock, bytes.NewReader(req))
 	if err != nil {
 		return nil, fmt.Errorf("Sending: %q\n", err)
 	}
 
-	//     fmt.Printf("body: %q\n", rep.Body)
+	// log.Printf("body: %q\n", rep.Body)
 
 	resp := xmlrpc.NewResponse(rep.Body)
 	var result [][]interface{}
@@ -66,9 +67,9 @@ func (p *RTorrent) Call(method string, args []interface{}) ([][]interface{}, err
 
 func (p *RTorrent) MultiCall(methods []Method) ([][]interface{}, error) {
 	//     methods := []Method{
-	//         Method{MethodName: "d.get_name", Params: []interface{}{"63E9359CA3542A335EC64EAF77822A1326D4D8DB"}},
-	//         Method{MethodName: "f.get_path", Params: []interface{}{"C6B21C75287BF2B948FED8FC5B5F613251DA10AB", 0}},
-	//         Method{MethodName: "f.multicall", Params: []interface{}{"63E9359CA3542A335EC64EAF77822A1326D4D8DB", 0, "f.get_path="}},
+	//         Method{MethodName: "d.name", Params: []interface{}{"63E9359CA3542A335EC64EAF77822A1326D4D8DB"}},
+	//         Method{MethodName: "f.path", Params: []interface{}{"C6B21C75287BF2B948FED8FC5B5F613251DA10AB", 0}},
+	//         Method{MethodName: "f.multicall", Params: []interface{}{"63E9359CA3542A335EC64EAF77822A1326D4D8DB", 0, "f.path="}},
 	//     }
 	return p.Call("system.multicall", []interface{}{methods})
 }
@@ -76,15 +77,16 @@ func (p *RTorrent) MultiCall(methods []Method) ([][]interface{}, error) {
 func (p *RTorrent) GetTorrents() ([]Torrent, error) {
 
 	args := []interface{}{
+		"", // None-existing hash placeholder
 		"main",
-		"d.get_name=",
-		"d.get_hash=",
-		"d.get_creation_date=",
-		"d.get_size_bytes=",
+		"d.name=",
+		"d.hash=",
+		"d.creation_date=",
+		"d.size_bytes=",
 		"d.is_active=",
-		"d.get_base_path=",
+		"d.base_path=",
 	}
-	res, err := p.Call("d.multicall", args)
+	res, err := p.Call("d.multicall2", args)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +149,7 @@ func (p *RTorrent) GetTorrentFiles(tors []Torrent) error {
 	var methods []Method
 	for _, t := range tors {
 		methods = append(methods, Method{
-			MethodName: "f.multicall", Params: []interface{}{t.Hash, 0, "f.get_path="},
+			MethodName: "f.multicall", Params: []interface{}{t.Hash, 0, "f.path="},
 		})
 	}
 	res, err := p.MultiCall(methods)

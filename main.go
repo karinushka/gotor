@@ -33,6 +33,67 @@ func userConfirm(q string) bool {
 	return s == "y" || s == "yes"
 }
 
+func filterTorrents(input []Torrent, name string, size int64, before, after int) []Torrent {
+	pat := regexp.MustCompile(name)
+	older := time.Now().Add(-24 * time.Hour * time.Duration(before))
+	newer := time.Now().Add(-24 * time.Hour * time.Duration(after))
+
+	var sel []Torrent
+	for _, t := range input {
+		if !t.Active {
+			continue
+		}
+		if (before != 0 && t.Time.After(older)) || (after != 0 && t.Time.Before(newer)) {
+			continue
+		}
+		if t.Size < size*1024*1024 {
+			continue
+		}
+		if !pat.MatchString(t.Name) {
+			continue
+		}
+		sel = append(sel, t)
+	}
+	return sel
+}
+
+func stopTorrents(rt *RTorrent, input []Torrent, remove bool) {
+	for _, t := range input {
+		fmt.Println(t.Path)
+	}
+	if userConfirm("Confirm stopping these torrents") {
+		if err := rt.StopTorrents(input); err != nil {
+			log.Printf("stopping torrents: %q\n", err)
+		}
+		fmt.Println("Stopping.")
+	}
+	if remove && userConfirm("Confirm DELETING these torrents") {
+		if err := rt.DeleteTorrents(input); err != nil {
+			log.Printf("deleting torrents: %q\n", err)
+		}
+		for _, t := range input {
+			fmt.Printf("Deleting %s\n", t.Path)
+			os.RemoveAll(t.Path)
+		}
+	}
+}
+
+func printTorrents(input []Torrent, verbose bool) {
+	tot := int64(0)
+	for _, t := range input {
+		fst := "2006.01.02"
+		if verbose {
+			fst = "2006.01.02-15:04:05"
+		}
+		fmt.Printf("%s %6dMB %s\n", t.Time.Format(fst), t.Size/1024/1024, t.Name)
+		if verbose {
+			fmt.Printf("\tHash: %s\n\tFiles: %d\n", t.Hash, len(t.Files))
+		}
+		tot += t.Size
+	}
+	fmt.Printf("Total: %d torrents, %.02fGB\n", len(input), float32(tot)/1024/1024/1024)
+}
+
 func main() {
 	flag.Parse()
 	rt := RTorrent{
@@ -41,36 +102,17 @@ func main() {
 
 	tor, err := rt.GetTorrents()
 	if err != nil {
-		log.Printf("%q\n", err)
+		log.Printf("Error retreiving torrents: %q\n", err)
 		return
 	}
-
-	pat := regexp.MustCompile(*flagName)
-	older := time.Now().Add(time.Duration(int64(*flagOlder) * -24 * time.Hour.Nanoseconds()))
-	newer := time.Now().Add(time.Duration(int64(*flagNewer) * -24 * time.Hour.Nanoseconds()))
-
-	var sel []Torrent
-	for _, t := range tor {
-		if !t.Active {
-			continue
-		}
-		if (*flagOlder != 0 && t.Time.After(older)) || (*flagNewer != 0 && t.Time.Before(newer)) {
-			continue
-		}
-		if t.Size < *flagSize*1024*1024 {
-			continue
-		}
-		if !pat.MatchString(t.Name) {
-			continue
-		}
-		sel = append(sel, t)
-	}
+	sel := filterTorrents(tor, *flagName, *flagSize, *flagOlder, *flagNewer)
 
 	if *flagNoLinks || *flagVerbose {
 		// Only load the individual file information if needed.
 		rt.GetTorrentFiles(sel)
 	}
 
+	// Filter by links
 	if *flagNoLinks {
 		var h []Torrent
 		for _, t := range sel {
@@ -82,25 +124,7 @@ func main() {
 	}
 
 	if *flagStop {
-		for _, t := range sel {
-			fmt.Println(t.Path)
-		}
-		if userConfirm("Confirm stopping these torrents") {
-			if err := rt.StopTorrents(sel); err != nil {
-				log.Printf("stopping torrents: %q\n", err)
-			}
-			fmt.Println("Stopping.")
-		}
-
-		if *flagDelete && userConfirm("Confirm DELETING these torrents") {
-			if err := rt.DeleteTorrents(sel); err != nil {
-				log.Printf("deleting torrents: %q\n", err)
-			}
-			for _, t := range sel {
-				fmt.Printf("Deleting %s\n", t.Path)
-				os.RemoveAll(t.Path)
-			}
-		}
+		stopTorrents(&rt, sel, *flagDelete)
 		return
 	}
 
@@ -115,21 +139,5 @@ func main() {
 	}
 	sort.Slice(sel, sf)
 
-	tot := int64(0)
-	for _, t := range sel {
-		fst := "2006.01.02"
-		if *flagVerbose {
-			fst = "2006.01.02-15:04:05"
-		}
-		fmt.Printf("%s %6dMB %s\n", t.Time.Format(fst), t.Size/1024/1024, t.Name)
-		if *flagVerbose {
-			fmt.Printf("\tHash: %s\n\tFiles: %d\n", t.Hash, len(t.Files))
-		}
-		tot += t.Size
-	}
-	fmt.Printf("Total: %d torrents, %.02fGB\n", len(sel), float32(tot)/1024/1024/1024)
-
-	//     for _, i := range sel {
-	//         fmt.Printf("%q\n", i)
-	//     }
+	printTorrents(sel, *flagVerbose)
 }
